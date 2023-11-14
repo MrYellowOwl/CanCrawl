@@ -1,11 +1,17 @@
 import socket
-import concurrent.futures
-import subprocess
-import threading  
+import requests
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+from bs4 import BeautifulSoup
+import queue
+import threading
 
 YELLOW = "\033[38;2;255;241;0m"
 GREEN = "\033[38;2;0;255;0m"
+RED = "\033[38;2;255;0;0m"
 RESET = "\033[0m"
+
+NUM_THREADS = 100
+TIMEOUT_SECONDS = 30
 
 def print_banner():
     print(YELLOW)
@@ -26,73 +32,103 @@ def print_banner():
     print("                                #& %.*.&/&( (/,&,.                              ")
     print("                                  %%,&.&&&.& &(                                 ")
     print("                                     % &&& *                                    ")
-    print(" ________  ________  _________        ________  ________  ________  _________  ________  ________      ")
-    print("|\\   ____\|\\   __  \|\___   ___\     |\   __  \|\   __  \|\   __  \|\___   ___\\   ____\|\_____  \     ")
-    print("\ \  \___|\ \  \|\  \|___ \  \_|     \ \  \|\  \ \  \|\  \ \  \|\  \|___ \  \_\ \  \___|\|____|\  \    ")
-    print(" \ \  \  __\ \  \\\  \   \ \  \       \ \   ____\ \  \\\  \ \   _  _\   \ \  \ \ \_____  \    \ \__\   ")
-    print("  \ \  \|\  \ \  \\\  \   \ \  \       \ \  \___|\ \  \\\  \ \  \\  \|   \ \  \ \|____|\  \    \|__|   ")
-    print("   \ \_______\ \_______\   \ \__\       \ \__\    \ \_______\ \__\\ _\    \ \__\  ____\_\  \       ___ ")
-    print("    \|_______|\|_______|    \|__|        \|__|     \|_______|\|__|\|__|    \|__| |\_________\     |\__\\")
-    print("                                                                                 \|_________|     \|__|")
+    print(" ▄████▄   ▄▄▄       ███▄    █     ▄████▄   ██▀███   ▄▄▄       █     █░ ██▓      ")
+    print("▒██▀ ▀█  ▒████▄     ██ ▀█   █    ▒██▀ ▀█  ▓██ ▒ ██▒▒████▄    ▓█░ █ ░█░▓██▒      ")
+    print("▒▓█    ▄ ▒██  ▀█▄  ▓██  ▀█ ██▒   ▒▓█    ▄ ▓██ ░▄█ ▒▒██  ▀█▄  ▒█░ █ ░█ ▒██░      ")
+    print("▒▓▓▄ ▄██▒░██▄▄▄▄██ ▓██▒  ▐▌██▒   ▒▓▓▄ ▄██▒▒██▀▀█▄  ░██▄▄▄▄██ ░█░ █ ░█ ▒██░      ")
+    print("▒ ▓███▀ ░ ▓█   ▓██▒▒██░   ▓██░   ▒ ▓███▀ ░░██▓ ▒██▒ ▓█   ▓██▒░░██▒██▓ ░██████▒  ")
+    print("░ ░▒ ▒  ░ ▒▒   ▓▒█░░ ▒░   ▒ ▒    ░ ░▒ ▒  ░░ ▒▓ ░▒▓░ ▒▒   ▓▒█░░ ▓░▒ ▒  ░ ▒░▓  ░  ")
+    print("  ░  ▒     ▒   ▒▒ ░░ ░░   ░ ▒░     ░  ▒     ░▒ ░ ▒░  ▒   ▒▒ ░  ▒ ░ ░  ░ ░ ▒  ░  ")
+    print("░          ░   ▒      ░   ░ ░    ░          ░░   ░   ░   ▒     ░   ░    ░ ░     ")
+    print("░ ░            ░  ░         ░    ░ ░         ░           ░  ░    ░        ░  ░  ")
+    print("░                                ░                                            ")
     print("-By Mr Yellow Owl")
     print(RESET)
 
+class DiscoveryWebCrawler:
 
-def validate_input():
-    while True:
-        target = input("Enter IP/Hostname to target: ")
+    def __init__(self, domain, levels):
+        self.domain = domain
+        self.q = queue.Queue()
+        self.urls = []
+        self.levels_to_crawl = levels
+
+    def resolve_ip(self, domain):
         try:
-            socket.inet_aton(target)
-            return target
-        except socket.error:
-            try:
-                ip = socket.gethostbyname(target)
-                return ip
-            except socket.error:
-                print("Invalid IP address or hostname. Please try again.")
+            ip_address = socket.gethostbyname(domain)
+            print(f"Resolved IP address for {domain}: {ip_address}")
+            return ip_address
+        except socket.gaierror:
+            print(f"{RED}Error: Could not resolve IP address for {domain}{RESET}")
+            return None
 
-def scan_port(ip, port, stop_event):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as scanner:
-        scanner.settimeout(0.5)
+    def crawl_url(self, crawl_url, current_level):
+        s = requests.Session()
         try:
-            result = scanner.connect_ex((ip, port))
-            if result == 0:
-                print(f"{GREEN}{port}...open{RESET}")
-                return port
-        except KeyboardInterrupt:
-            stop_event.set()
-    return None
+            r = s.get(crawl_url, verify=True, timeout=TIMEOUT_SECONDS)
+            r.raise_for_status()  
+            soup = BeautifulSoup(r.content, 'html.parser') 
+            links = soup.find_all('a')
+            for url in links:
+                try:
+                    url = url.get('href')
+                    if url and url[0] == '/':
+                        url = self.domain + url
+                    if url and url.split("/")[2] == self.domain.split('/')[2] and url not in [u['url'] for u in self.urls]:
+                        self.urls.append({'url': url, 'level': current_level})
+                        if current_level + 1 < self.levels_to_crawl:
+                            self.q.put({'url': url, 'level': current_level + 1})
+                except Exception as e:
+                    pass
+        except requests.RequestException as e:
+            print(f"{RED}Error crawling {crawl_url}: {e}{RESET}")
 
-def run_scanner(ip, stop_event):
-    open_ports = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
-        future_to_port = {executor.submit(scan_port, ip, port, stop_event): port for port in range(1, 1025)}
-        for future in concurrent.futures.as_completed(future_to_port):
-            port = future_to_port[future]
-            try:
-                open_port = future.result()
-                if open_port is not None:
-                    open_ports.append(open_port)
-            except Exception as e:
-                print(f"Error scanning port {port}: {str(e)}")
-    return open_ports
+    def worker(self):
+        while 1:
+            crawl_url_dict = self.q.get()
+            self.crawl_url(crawl_url_dict['url'], crawl_url_dict['level'])
+            self.q.task_done()
 
-def print_results(ip, open_ports):
-    print(f"{YELLOW}Getting Services & Versions!{RESET}")
-    if open_ports:
-        ports_str = ','.join(map(str, open_ports))
-        nmap_cmd = f"nmap -Pn -sC -sV {ip} -p {ports_str}"
-        try:
-            subprocess.run(nmap_cmd, shell=True, check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"Error running nmap: {str(e)}")
+    def start(self):
+        self.q.put({'url': self.domain, 'level': 0})
+        for _ in range(NUM_THREADS):
+            t = threading.Thread(target=self.worker)
+            t.daemon = True
+            t.start()
+        self.q.join()
 
 if __name__ == "__main__":
     print_banner()
-    try:
-        target_ip = validate_input()
-        stop_event = threading.Event()  
-        open_ports = run_scanner(target_ip, stop_event)
-        print_results(target_ip, open_ports)
-    except KeyboardInterrupt:
-        print("\nScan interrupted by user.")
+
+    while True:
+        input_domain = input("Enter a domain, URL, or IP to crawl: ")
+        if input_domain.startswith("http://") or input_domain.startswith("https://"):
+            domain = input_domain
+            break
+        else:
+            try:
+                socket.inet_pton(socket.AF_INET, input_domain)
+                domain = f"http://{input_domain}"
+                break
+            except socket.error:
+                try:
+                    socket.inet_pton(socket.AF_INET6, input_domain)
+                    domain = f"http://{input_domain}"
+                    break
+                except socket.error:
+                    domain = f"http://{input_domain}"
+                    break
+
+    levels = int(input("Enter the number of levels to crawl: "))
+
+    web_crawler = DiscoveryWebCrawler(domain, levels)
+
+    print(f"{YELLOW}Crawling {domain}...{RESET}")
+    web_crawler.start()
+    print(f"{GREEN}Crawling completed!{RESET}")
+
+    for i in range(levels):
+        print(f"\n{GREEN}Level {i+1} URLs{RESET}")
+        for url_info in web_crawler.urls:
+            if url_info['level'] == i:
+                print(url_info['url'])
