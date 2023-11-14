@@ -27,7 +27,7 @@ The Can Crawl tool is a Python script designed to crawl and discover URLs associ
 3. Run the script:
 
     ```bash
-    python3 can_crawl.py
+    python3 CanCrawl.py
     ```
 
 4. Follow the on-screen instructions to enter the target domain, URL, or IP address and the desired number of levels to crawl.
