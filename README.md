@@ -48,6 +48,6 @@ If you encounter any issues or have suggestions for improvements, please [open a
 
 ---
 
-**By Your Name**
+**MrYellowOwl**
 
 [GitHub Profile](https://github.com/MrYellowOwl)
