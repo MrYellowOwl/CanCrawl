@@ -40,7 +40,7 @@ The Can Crawl tool is a Python script designed to crawl and discover URLs associ
 
 ## Acknowledgements
 
-- Script by [Your Name](https://github.com/MrYellowOwl)
+- Script by [MrYellowOwl](https://github.com/MrYellowOwl)
 
 ## Issues and Contributions
 
